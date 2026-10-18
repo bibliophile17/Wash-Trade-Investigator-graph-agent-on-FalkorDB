@@ -14,7 +14,7 @@ def q(cypher, params=None):
     return g.query(cypher, params or {}).result_set
 
 
-# --------------------------------------------------------------------------- tools
+# tools
 
 
 def token_overview():
@@ -149,7 +149,7 @@ def flag_wallets(wallet_ids: list, token: str, reason: str):
     return {"case_id": cid, "flagged": len(wallet_ids)}
 
 
-# --------------------------------------------------------------------------- UI helpers
+# UI helpers
 
 
 def case_graph(case_id: str):
