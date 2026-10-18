@@ -1,0 +1,4 @@
+falkordb
+fastapi
+uvicorn[standard]
+anthropic

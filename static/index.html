@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wash-Trade Investigator</title>
+    <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+    <style>
+      :root {
+        --bg: #0f1420;
+        --panel: #171e2e;
+        --line: #2a3550;
+        --text: #e6ebf5;
+        --mute: #8b97b3;
+        --acc: #4ea1ff;
+        --bad: #ff6b6b;
+        --ok: #4ad295;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font:
+          15px/1.5 system-ui,
+          -apple-system,
+          Segoe UI,
+          Roboto,
+          sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      header {
+        padding: 18px 24px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+        flex-wrap: wrap;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0;
+      }
+      header span {
+        color: var(--mute);
+        font-size: 13px;
+      }
+      main {
+        display: grid;
+        grid-template-columns: minmax(300px, 420px) 1fr;
+        gap: 16px;
+        padding: 16px 24px;
+      }
+      @media (max-width: 860px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 14px;
+      }
+      h2 {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--mute);
+        margin: 0 0 10px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      td,
+      th {
+        padding: 5px 6px;
+        text-align: left;
+        border-bottom: 1px solid var(--line);
+      }
+      tr.pick {
+        cursor: pointer;
+      }
+      tr.pick:hover {
+        background: #1f2940;
+      }
+      tr.sel {
+        background: #223056;
+      }
+      button {
+        background: var(--acc);
+        color: #04101f;
+        border: 0;
+        border-radius: 8px;
+        padding: 9px 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.ghost {
+        background: transparent;
+        color: var(--mute);
+        border: 1px solid var(--line);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+        flex-wrap: wrap;
+      }
+      .step {
+        border-left: 3px solid var(--acc);
+        padding: 4px 10px;
+        margin: 8px 0;
+        font-size: 13px;
+      }
+      .step b {
+        color: var(--acc);
+      }
+      .step code {
+        color: var(--mute);
+        word-break: break-all;
+        display: block;
+        font-size: 12px;
+      }
+      .verdict {
+        white-space: pre-wrap;
+        border-left: 3px solid var(--bad);
+        padding: 6px 12px;
+        background: #2a1a20;
+        border-radius: 6px;
+      }
+      .verdict.clean {
+        border-color: var(--ok);
+        background: #122a22;
+      }
+      #graph {
+        height: 520px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #0b101a;
+      }
+      .pill {
+        display: inline-block;
+        padding: 1px 8px;
+        border-radius: 99px;
+        background: #223056;
+        font-size: 12px;
+        color: var(--acc);
+      }
+      .muted {
+        color: var(--mute);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Wash-Trade Investigator</h1>
+      <span
+        >Graph agent on FalkorDB. Pick a token, let the agent investigate, see
+        the evidence.</span
+      >
+      <span id="mode" class="pill" style="display: none"></span>
+    </header>
+    <main>
+      <section>
+        <div class="panel">
+          <h2>1. Pick a token</h2>
+          <table id="tokens">
+            <tr>
+              <td class="muted">loading...</td>
+            </tr>
+          </table>
+          <div class="row">
+            <button id="go" disabled>Investigate</button>
+            <button id="reset" class="ghost">Reset cases</button>
+          </div>
+        </div>
+        <div class="panel" style="margin-top: 16px">
+          <h2>2. What the agent did</h2>
+          <div id="steps" class="muted">Nothing yet.</div>
+        </div>
+      </section>
+      <section>
+        <div class="panel">
+          <h2>3. Verdict</h2>
+          <div id="verdict" class="muted">
+            Run an investigation to see a verdict.
+          </div>
+        </div>
+        <div class="panel" style="margin-top: 16px">
+          <h2>
+            4. Evidence graph
+            <span id="caseTag" class="pill" style="display: none"></span>
+          </h2>
+          <div id="graph"></div>
+          <p class="muted">
+            Blue circles are flagged wallets. Arrow labels show how many trades
+            went that way (thicker = more). Orange diamonds are funding wallets
+            that paid for several of the wallets.
+          </p>
+        </div>
+      </section>
+    </main>
+    <script>
+      let selected = null,
+        network = null;
+      const $ = (id) => document.getElementById(id);
+      const esc = (s) =>
+        String(s).replace(
+          /[&<>]/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c],
+        );
+
+      async function loadTokens() {
+        const rows = await (await fetch("/api/tokens")).json();
+        $("tokens").innerHTML =
+          "<tr><th>Token</th><th>Trades</th><th>Volume</th></tr>" +
+          rows
+            .map(
+              (r) =>
+                `<tr class="pick" data-t="${esc(r.token)}"><td>${esc(r.token)}</td><td>${r.trades}</td><td>${Math.round(r.volume).toLocaleString()}</td></tr>`,
+            )
+            .join("");
+        document.querySelectorAll("tr.pick").forEach(
+          (tr) =>
+            (tr.onclick = () => {
+              document
+                .querySelectorAll("tr.pick")
+                .forEach((x) => x.classList.remove("sel"));
+              tr.classList.add("sel");
+              selected = tr.dataset.t;
+              $("go").disabled = false;
+            }),
+        );
+      }
+
+      function drawGraph(data) {
+        const nodes = data.nodes.map((n) =>
+          n.group === "funder"
+            ? { ...n, shape: "diamond", color: "#ffb454", size: 16 }
+            : {
+                ...n,
+                shape: "dot",
+                color: "#4ea1ff",
+                size: 18,
+                font: { color: "#e6ebf5" },
+              },
+        );
+        const edges = data.edges.map((e) =>
+          e.dashes
+            ? {
+                ...e,
+                color: "#ffb454",
+                arrows: "to",
+                font: { size: 9, color: "#ffb454" },
+              }
+            : {
+                ...e,
+                arrows: "to",
+                width: Math.max(1, Math.min(6, (e.value || 1) / 4)),
+                color: "#7aa7e6",
+                font: { size: 10, color: "#8b97b3", strokeWidth: 0 },
+                smooth: { type: "curvedCW", roundness: 0.2 },
+              },
+        );
+        network = new vis.Network(
+          $("graph"),
+          { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) },
+          {
+            physics: { stabilization: true, barnesHut: { springLength: 140 } },
+            interaction: { hover: true },
+          },
+        );
+      }
+
+      async function showCase(id) {
+        const data = await (
+          await fetch("/api/case/" + encodeURIComponent(id))
+        ).json();
+        $("caseTag").style.display = "";
+        $("caseTag").textContent = id;
+        drawGraph(data);
+      }
+
+      $("go").onclick = async () => {
+        $("go").disabled = true;
+        $("go").textContent = "Investigating...";
+        $("steps").textContent = "Running...";
+        $("verdict").textContent = "";
+        try {
+          const res = await (
+            await fetch("/api/investigate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token: selected }),
+            })
+          ).json();
+          $("mode").style.display = "";
+          $("mode").textContent = "mode: " + res.mode;
+          $("steps").innerHTML = res.steps
+            .map(
+              (s, i) =>
+                `<div class="step"><b>${i + 1}. ${esc(s.tool)}</b><code>in: ${esc(s.args)}</code><code>out: ${esc(s.result)}</code></div>`,
+            )
+            .join("");
+          const clean = !res.cases.length;
+          $("verdict").className = "verdict" + (clean ? " clean" : "");
+          $("verdict").textContent =
+            res.verdict || (clean ? "No wash trading found." : "");
+          if (res.cases.length) await showCase(res.cases[0]);
+          else {
+            $("caseTag").style.display = "none";
+            $("graph").innerHTML = "";
+          }
+        } catch (e) {
+          $("verdict").textContent = "Error: " + e;
+        }
+        $("go").disabled = false;
+        $("go").textContent = "Investigate";
+      };
+
+      $("reset").onclick = async () => {
+        const r = await fetch("/api/reset", { method: "POST" });
+        if (!r.ok) {
+          $("verdict").className = "verdict";
+          $("verdict").textContent = "Reset failed: " + (await r.text());
+          return;
+        }
+        const d = await r.json();
+        $("steps").textContent = "Nothing yet.";
+        $("verdict").className = "muted";
+        $("verdict").textContent =
+          "Cases cleared (" +
+          d.cases_deleted +
+          " removed, " +
+          d.wallets_unflagged +
+          " wallets unflagged).";
+        $("graph").innerHTML = "";
+        $("caseTag").style.display = "none";
+        $("mode").style.display = "none";
+      };
+
+      loadTokens();
+    </script>
+  </body>
+</html>
