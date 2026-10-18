@@ -5,7 +5,6 @@
 Built for **Graph Hacks: Context for AI Agents** (WeMakeDevs x FalkorDB), **Track 1: Agents That Act on Connected Data**.
 
 - Demo video: `https://youtu.be/8v5GZgZmGCw`
--
 
 ![Evidence graph](docs/evidence-graph.png)
 
