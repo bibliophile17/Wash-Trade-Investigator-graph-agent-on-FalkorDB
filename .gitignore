@@ -5,3 +5,4 @@ __pycache__/
 .env
 .vscode/
 "@ | Set-Content -Encoding utf8 .gitignore
+start.ps1
